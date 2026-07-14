@@ -22,6 +22,9 @@ class Sales(Base):
     no_telp = Column(String)
     alamat = Column(String)
     jadwal_bayar = Column(String) # 'Mingguan' atau 'Bulanan'
+    total_invoice = Column(Float, default=0)
+    periode_minggu = Column(Integer, default=4)
+    sisa_bayar = Column(Float, default=0)
 
     daftar_setoran = relationship("Setoran", back_populates="sales")
 
