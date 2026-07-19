@@ -40,8 +40,7 @@ app.add_middleware(
         "http://localhost:3000",
         "http://localhost:8000",
         "https://grosirin.vercel.app",
-        # Tambahkan URL Railway/ frontend di sini setelah deploy
-        # Contoh: "https://grosirin-frontend.up.railway.app"
+        "grosirin-backend.up.railway.app"
     ],
     allow_credentials=True,
     allow_methods=["*"],
