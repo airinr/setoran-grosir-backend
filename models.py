@@ -1,6 +1,5 @@
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime, ForeignKey, Enum
+from sqlalchemy import Column, Integer, String, Float, Date, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
-import datetime
 from database import Base
 
 class User(Base):
@@ -10,7 +9,7 @@ class User(Base):
     username = Column(String, unique=True, index=True)
     password = Column(String)
     nama_lengkap = Column(String)
-    role = Column(String) # 'Pegawai' atau 'Pemilik'
+    role = Column(String)
 
     setoran_dicatat = relationship("Setoran", back_populates="pegawai")
 
@@ -21,7 +20,7 @@ class Sales(Base):
     nama_sales = Column(String, index=True)
     no_telp = Column(String)
     alamat = Column(String)
-    jadwal_bayar = Column(String) # 'Mingguan' atau 'Bulanan'
+    jadwal_bayar = Column(String)
     total_invoice = Column(Float, default=0)
     periode_minggu = Column(Integer, default=4)
     sisa_bayar = Column(Float, default=0)
@@ -32,12 +31,12 @@ class Setoran(Base):
     __tablename__ = "setoran"
 
     id_setoran = Column(Integer, primary_key=True, index=True)
-    id_sales = Column(ForeignKey("sales.id_sales"))
-    id_user = Column(ForeignKey("users.id_user"))
-    tanggal_setoran = Column(Date, default=datetime.date.today)
+    id_sales = Column(Integer, ForeignKey("sales.id_sales"))
+    id_user = Column(Integer, ForeignKey("users.id_user"))
+    tanggal_setoran = Column(Date)
     jumlah_pembayaran = Column(Float)
     tanggal_jatuh_tempo = Column(Date)
-    status_pembayaran = Column(String) # 'Lunas', 'Belum Lunas', 'Terlambat'
+    status_pembayaran = Column(String)
 
     sales = relationship("Sales", back_populates="daftar_setoran")
     pegawai = relationship("User", back_populates="setoran_dicatat")
@@ -47,8 +46,8 @@ class BuktiPembayaran(Base):
     __tablename__ = "bukti_pembayaran"
 
     id_bukti = Column(Integer, primary_key=True, index=True)
-    id_setoran = Column(ForeignKey("setoran.id_setoran"))
-    foto_struk = Column(String) # Menyimpan path lokasi file foto
-    tanggal_upload = Column(DateTime, default=datetime.datetime.now)
+    id_setoran = Column(Integer, ForeignKey("setoran.id_setoran"))
+    foto_struk = Column(String)
+    tanggal_upload = Column(DateTime)
 
     setoran = relationship("Setoran", back_populates="bukti")

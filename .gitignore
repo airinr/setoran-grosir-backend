@@ -2,3 +2,5 @@ venv/
 .venv/
 __pycache__/
 *.pyc
+toko_grosir.db
+uploaded_struk/

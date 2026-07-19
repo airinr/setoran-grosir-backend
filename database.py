@@ -1,18 +1,21 @@
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+import os
 
-# Menggunakan SQLite untuk lokal development
-SQLALCHEMY_DATABASE_URL = "sqlite:///./toko_grosir.db"
-
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://postgres.abdjopeevusxxtzqffdf:grosirin123@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres"
 )
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+if DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+else:
+    engine = create_engine(DATABASE_URL, connect_args={"sslmode": "require"})
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# Dependency untuk mendapatkan session database di setiap API Route
 def get_db():
     db = SessionLocal()
     try:

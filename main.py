@@ -1,10 +1,9 @@
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
-from datetime import date
-import shutil
+from datetime import date, datetime
+from supabase import create_client, Client
 import os
 import bcrypt
 import base64
@@ -12,11 +11,11 @@ import base64
 import models, schemas
 from database import engine, get_db
 
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://abdjopeevusxxtzqffdf.supabase.co")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFiZGpvcGVldnVzeHh0enFmZmRmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ0Mjc0MzcsImV4cCI6MjEwMDAwMzQzN30._IMelsEdtQq9wCWHJhLDKc6AAQLAb7JYgR8LOkmsdQ0")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
-
-# Membuat tabel otomatis di SQLite jika belum ada
-models.Base.metadata.create_all(bind=engine)
-
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     try:
@@ -34,26 +33,25 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 
 app = FastAPI(title="Sistem Manajemen Setoran Sales API")
 
-# Konfigurasi CORS agar React frontend bisa mengakses API ini nanti
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "https://grosirin.vercel.app"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Folder untuk menyimpan file upload bukti pembayaran
-UPLOAD_DIR = "uploaded_struk"
-if not os.path.exists(UPLOAD_DIR):
-    os.makedirs(UPLOAD_DIR)
 
-@app.get("/uploads/{filename}")
-async def serve_upload(filename: str):
-    file_path = os.path.join(UPLOAD_DIR, filename)
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File tidak ditemukan")
-    return FileResponse(file_path)
+async def upload_to_supabase(file: UploadFile, setoran_id: int) -> str:
+    filename = f"{setoran_id}_{file.filename}"
+    contents = await file.read()
+    supabase.storage.from_("bukti-struk").upload(filename, contents, {"content-type": file.content_type})
+    return f"{SUPABASE_URL}/storage/v1/object/public/bukti-struk/{filename}"
+
 
 # --- ENDPOINT FOR SALES ---
 
@@ -109,11 +107,10 @@ def delete_sales(id_sales: int, db: Session = Depends(get_db), user: models.User
     return {"message": "Sales berhasil dihapus"}
 
 
-# --- ENDPOINT FOR SETORAN (Kasir/Pegawai) ---
+# --- ENDPOINT FOR SETORAN ---
 
 @app.post("/setoran/", response_model=schemas.SetoranResponse, status_code=status.HTTP_201_CREATED)
 def create_setoran(setoran: schemas.SetoranCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    # Validasi apakah sales ada
     sales_exists = db.query(models.Sales).filter(models.Sales.id_sales == setoran.id_sales).first()
     if not sales_exists:
         raise HTTPException(status_code=404, detail="Sales tidak ditemukan")
@@ -173,15 +170,12 @@ async def create_setoran_with_bukti(
     db: Session = Depends(get_db),
     user: models.User = Depends(get_current_user)
 ):
-    # Validasi apakah sales ada
     sales = db.query(models.Sales).filter(models.Sales.id_sales == id_sales).first()
     if not sales:
         raise HTTPException(status_code=404, detail="Sales tidak ditemukan")
     
-    # Convert string ke date object
     tgl_tempo = date.fromisoformat(tanggal_jatuh_tempo)
     
-    # Buat setoran
     db_setoran = models.Setoran(
         id_sales=id_sales,
         id_user=id_user,
@@ -194,48 +188,36 @@ async def create_setoran_with_bukti(
     db.commit()
     db.refresh(db_setoran)
     
-    # Update sisa bayar
     sales.sisa_bayar = max(0, sales.sisa_bayar - jumlah_pembayaran)
     if sales.sisa_bayar <= 0:
         sales.sisa_bayar = 0
     db.commit()
     
-    # Upload bukti jika ada
     if file:
-        file_location = f"{UPLOAD_DIR}/{db_setoran.id_setoran}_{file.filename}"
-        with open(file_location, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        
-        db_bukti = models.BuktiPembayaran(id_setoran=db_setoran.id_setoran, foto_struk=file_location)
+        foto_url = await upload_to_supabase(file, db_setoran.id_setoran)
+        db_bukti = models.BuktiPembayaran(id_setoran=db_setoran.id_setoran, foto_struk=foto_url)
         db.add(db_bukti)
         db.commit()
     
     return db_setoran
 
 
-# --- ENDPOINT UPLOAD BUKTI (Kasir/Pegawai di Sprint 2) ---
-
 @app.post("/setoran/{id_setoran}/upload-bukti/")
 async def upload_bukti_pembayaran(id_setoran: int, file: UploadFile = File(...), db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    # Pastikan data setoran ada
     setoran_exists = db.query(models.Setoran).filter(models.Setoran.id_setoran == id_setoran).first()
     if not setoran_exists:
         raise HTTPException(status_code=404, detail="Data Setoran tidak ditemukan")
 
-    # Path penyimpanan file
-    file_location = f"{UPLOAD_DIR}/{id_setoran}_{file.filename}"
-    with open(file_location, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    foto_url = await upload_to_supabase(file, id_setoran)
 
-    # Simpan path file ke database
-    db_bukti = models.BuktiPembayaran(id_setoran=id_setoran, foto_struk=file_location)
+    db_bukti = models.BuktiPembayaran(id_setoran=id_setoran, foto_struk=foto_url)
     db.add(db_bukti)
     db.commit()
     
-    return {"message": "Bukti pembayaran berhasil diunggah", "path": file_location}
+    return {"message": "Bukti pembayaran berhasil diunggah", "path": foto_url}
 
 
-# --- ENDPOINT REKAPITULASI/DASHBOARD (Pemilik di Sprint 3) ---
+# --- ENDPOINT REKAPITULASI/DASHBOARD ---
 
 @app.get("/dashboard/rekapitulasi/")
 def get_rekapitulasi_keuangan(db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
@@ -246,14 +228,12 @@ def get_rekapitulasi_keuangan(db: Session = Depends(get_db), user: models.User =
     total_belum_bayar = sum(s.sisa_bayar for s in semua_sales)
     total_invoice = sum(s.total_invoice for s in semua_sales)
     
-    # Top 5 sales dengan sisa bayar terbesar
     top_sales = sorted(semua_sales, key=lambda s: s.sisa_bayar, reverse=True)[:5]
     top_sales_utang = [
         {"nama_sales": s.nama_sales, "sisa_bayar": s.sisa_bayar, "total_invoice": s.total_invoice}
         for s in top_sales if s.sisa_bayar > 0
     ]
     
-    # 5 setoran terakhir dengan nama pegawai
     recent = db.query(models.Setoran).order_by(models.Setoran.id_setoran.desc()).limit(5).all()
     recent_setoran = []
     for s in recent:
@@ -267,7 +247,6 @@ def get_rekapitulasi_keuangan(db: Session = Depends(get_db), user: models.User =
             "status": s.status_pembayaran
         })
 
-    # Setoran hari ini
     today = date.today()
     setoran_hari_ini = db.query(models.Setoran).filter(models.Setoran.tanggal_setoran == today).all()
     total_setoran_hari_ini = sum(s.jumlah_pembayaran for s in setoran_hari_ini)
