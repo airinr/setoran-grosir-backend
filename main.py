@@ -40,7 +40,8 @@ app.add_middleware(
         "http://localhost:3000",
         "http://localhost:8000",
         "https://grosirin.vercel.app",
-        "grosirin-backend.up.railway.app"
+        "grosirin-backend.up.railway.app",
+        "https://setoran-grosir-fronted.vercel.app"
     ],
     allow_credentials=True,
     allow_methods=["*"],
